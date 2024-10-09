@@ -88,7 +88,7 @@ app.post("/userRegister", async (req, res) => {
         await newUser.save();
 
         const token = jwt.sign({userId, email, role : "user"}, jwt_secret, {expiresIn : '1h'});
-        res.json({token});
+        res.json({message : "User registered successfully" ,token});
     } catch (error) {
         return res.status(500).json({message : "Server error"});
     }
@@ -110,25 +110,50 @@ app.post("/userLogin", async(req, res) => {
         }
 
         const token = jwt.sign({userId, email, role : user.role}, jwt_secret,{expiresIn : '1h'});
-        res.json({token});
+        res.json({message : "User logged in successfully" ,token});
     } catch (error) {
         res.status(500).json({message : "Server error"});
     }
 });
 
-app.post("/upload", authMiddleware(['user']), async(req, res) => {
-    const {task, adminEmail} = req.body;
-    const userId = req.user.userId;
-    const id = uuidv4();
-    const user = await User.findOne({userId});
-    const admin = await Admin.findOne({adminEmail});
-    const newAssignment = new Assignment({id, task, userId, adminId : admin.adminId});
-    await newAssignment.save();
-    user.assignments.push({id, task});
-    admin.assignedAssignments.push({id, task});
-    await user.save();
-    await admin.save();
-    res.status(200).json({message : "Assignment uploaded"});
+app.post("/upload", authMiddleware(['user']), async (req, res) => {
+    const { task, adminEmail } = req.body;
+    const userId = req.user.userId; // Get userId from authenticated user
+    const id = uuidv4(); // Generate a unique ID for the assignment
+
+    try {
+        const user = await User.findOne({ userId }); // Find user by custom userId
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        const admin = await Admin.findOne({ adminEmail });
+        if (!admin) {
+            return res.status(404).json({ message: "Admin not found" });
+        }
+
+        // Create a new assignment using ObjectIds
+        const newAssignment = new Assignment({
+            id,
+            task,
+            userId: user._id, // Use MongoDB ObjectId here
+            adminId: admin._id // Use MongoDB ObjectId here
+        });
+
+        await newAssignment.save();
+
+        // Push the ObjectId of the new assignment instead of an object
+        user.assignments.push(newAssignment._id);
+        admin.assignedAssignments.push(newAssignment._id);
+
+        await user.save();
+        await admin.save();
+
+        res.status(200).json({ message: "Assignment uploaded" });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Server error" });
+    }
 });
 
 app.get("/admins", authMiddleware(['user']), async(req, res) => {
@@ -158,12 +183,13 @@ app.post("/adminRegister", async(req, res) => {
 
         const adminId = uuidv4();
         const hashedPassword = await bcrypt.hash(password, 10);
-        const newAdmin = new Admin({name, adminEmail:email, adminPassword:hashedPassword, role:"admin"});
+        const newAdmin = new Admin({adminId, name, adminEmail:email, adminPassword:hashedPassword, role:"admin"});
         await newAdmin.save();
 
         const token = jwt.sign({adminId, email, role : "admin"}, jwt_secret, {expiresIn : '1h'});
-        res.status(200).json({token});
+        res.status(200).json({message : "Admin registered successfully", token});
     } catch (error) {
+        console.error(error);
         res.status(500).json({message : "Server error"});
     }
 });
@@ -172,8 +198,8 @@ app.post("/adminLogin", async(req, res) => {
     const {email, password} = req.body;
 
     try {
-        const admin = await Admin.findOne({email});
-        const adminId = admin.adminId;
+        const admin = await Admin.findOne({adminEmail: email});
+        // const adminId = admin.adminId;
         if(!admin){
             return res.status(400).json({message : "Email not found"});
         }
@@ -183,50 +209,53 @@ app.post("/adminLogin", async(req, res) => {
             return res.status(400).json({message : "Passowrd is incorrect"});
         }
 
-        const token = jwt.sign({adminId, email, role :"admin"}, jwt_secret, {expiresIn : '1h'});
-        res.status(200).json({token});
+        const token = jwt.sign({ adminId: admin.adminId, email, role :"admin"}, jwt_secret, {expiresIn : '1h'});
+        res.status(200).json({message : "Admin logged in successfully" ,token});
     } catch (error) {
+        console.error(error);
         return res.status(500).json({message : "Server error"});
     }
 });
 
 app.get("/assignments", authMiddleware(['admin']), async(req, res) => {
     try {
-        const admin = await Admin.findOne(req.user.adminId).populate('assignedAssignments', 'id task');
+        const admin = await Admin.findOne({adminId: req.user.adminId}).populate('assignedAssignments', 'id task');
         const assignments = admin.assignedAssignments.map(assignment => ({
             id : assignment.id,
             task : assignment.task
         }));
         res.json({assignments});
     } catch (error) {
+        console.error(error);
         return res.status(500).json({messsage : "Server error"});
     }
 });
 
 app.post("/assignments/:id/accept", authMiddleware(['admin']), async(req, res) => {
     try {
-        const assignmentId = req.params.id;
-        const assignment = await Assignment.findOne(assignmentId);
+        // const assignmentId = req.params.id;
+        const assignment = await Assignment.findOne({id : req.params.id});
         if(!assignment){
             return res.status(400).json({message : "Assignment not found"});
         }
-        const admin = await Admin.findOne(req.user.adminId);
+        const admin = await Admin.findOne({adminId : req.user.adminId});
         admin.acceptedAssignments.push(assignment);
         await admin.save();
         res.status(200).json({message : "Admin accepted the assignment"});
     } catch (error) {
+        console.error(error);
         return res.status(500).json({message : "Server error"});
     }
 });
 
 app.post("/assignments/:id/reject", authMiddleware(['admin']), async(req, res) => {
     try {
-        const assignmentId = req.params.id;
-        const assignment = await Assignment.findOne(assignmentId);
+        // const assignmentId = req.params.id;
+        const assignment = await Assignment.findOne({id : req.params.id});
         if(!assignment){
             return res.status(400).json({message : "Assignment not found"});
         }
-        const admin = await Admin.findOne(req.user.adminId);
+        const admin = await Admin.findOne({adminId : req.user.adminId});
         admin.rejectedAssignments.push(assignment);
         await admin.save();
         res.status(200).json({message : "Admin rejected the assignment"});
