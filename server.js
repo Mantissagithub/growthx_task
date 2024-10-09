@@ -183,7 +183,7 @@ app.post("/adminLogin", async(req, res) => {
             return res.status(400).json({message : "Passowrd is incorrect"});
         }
 
-        const token = jwt.sign({adminId, email, role :"admin"}. jwt_secret, {expiresIn : '1h'});
+        const token = jwt.sign({adminId, email, role :"admin"}, jwt_secret, {expiresIn : '1h'});
         res.status(200).json({token});
     } catch (error) {
         return res.status(500).json({message : "Server error"});
@@ -192,7 +192,7 @@ app.post("/adminLogin", async(req, res) => {
 
 app.get("/assignments", authMiddleware(['admin']), async(req, res) => {
     try {
-        const admin = await Admin.findOne(req.user.adminId).populate('assignedAssignments', 'id');
+        const admin = await Admin.findOne(req.user.adminId).populate('assignedAssignments', 'id task');
         const assignments = admin.assignedAssignments.map(assignment => ({
             id : assignment.id,
             task : assignment.task
@@ -206,7 +206,7 @@ app.get("/assignments", authMiddleware(['admin']), async(req, res) => {
 app.post("/assignments/:id/accept", authMiddleware(['admin']), async(req, res) => {
     try {
         const assignmentId = req.params.id;
-        const assignment = await Assignment.findOne({assignmentId});
+        const assignment = await Assignment.findOne(assignmentId);
         if(!assignment){
             return res.status(400).json({message : "Assignment not found"});
         }
@@ -222,7 +222,7 @@ app.post("/assignments/:id/accept", authMiddleware(['admin']), async(req, res) =
 app.post("/assignments/:id/reject", authMiddleware(['admin']), async(req, res) => {
     try {
         const assignmentId = req.params.id;
-        const assignment = await Assignment.findOne({assignmentId});
+        const assignment = await Assignment.findOne(assignmentId);
         if(!assignment){
             return res.status(400).json({message : "Assignment not found"});
         }
